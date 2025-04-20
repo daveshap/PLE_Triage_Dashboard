@@ -1,0 +1,13 @@
+# Minimal KPI spec for Labor‑Collapse Triage dashboard
+# Each entry: {name, source_url, local_csv, formula}
+kpis:
+  - name: prime_epop
+    source_url: https://download.bls.gov/pub/time.series/la/la.data.64.County
+    local_csv: la.data.64.County
+    formula: |
+      # TODO: derive prime‑age employment‑population ratio
+  - name: avg_weekly_hours
+    source_url: https://download.bls.gov/pub/time.series/ce/ce.data.0.AllCES
+    local_csv: ce.data.0.AllCES
+    formula: |
+      # TODO: derive average hours for all private employees

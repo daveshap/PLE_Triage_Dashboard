@@ -1,0 +1,8 @@
+pandas
+duckdb
+pyarrow
+requests
+tqdm
+streamlit
+pydeck
+pyyaml

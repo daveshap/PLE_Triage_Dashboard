@@ -1,0 +1,21 @@
+name: nightly-etl
+on:
+  schedule:
+    - cron: '0 6 * * *'
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - run: python build_triage.py
+      - name: Commit artefacts
+        run: |
+          git config user.name 'github-actions'
+          git config user.email 'actions@github.com'
+          git add triage.*
+          git commit -m 'Nightly ETL' || echo 'Nothing to commit'
+          git push
