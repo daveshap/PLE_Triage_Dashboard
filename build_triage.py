@@ -23,15 +23,18 @@ def load_and_process_cainc4():
     logger.info("Loading CAINC4 data...")
 
     # Read the CSV file
-    df = pd.read_csv(csv_path, encoding='latin-1')
+    df = pd.read_csv(csv_path, encoding='latin-1', low_memory=False)
     logger.info(f"Loaded {len(df)} rows")
 
-    # Filter for county data only (FIPS codes ending in 3 digits that aren't 000)
-    # This excludes states, metros, and US total
-    df['is_county'] = df['GeoFIPS'].str.match(r'^\d{5}$') & ~df['GeoFIPS'].str.endswith('000')
+    # Clean up GeoFIPS - remove quotes and spaces
+    df['GeoFIPS_clean'] = df['GeoFIPS'].str.strip().str.strip('"')
+
+    # Filter for county data only (5-digit FIPS codes that don't end in 000)
+    df['is_county'] = (df['GeoFIPS_clean'].str.match(r'^\d{5}$') &
+                       ~df['GeoFIPS_clean'].str.endswith('000'))
     county_data = df[df['is_county']].copy()
 
-    logger.info(f"Found {len(county_data['GeoFIPS'].unique())} counties")
+    logger.info(f"Found {len(county_data['GeoFIPS_clean'].unique())} counties")
 
     # Get the three components we need
     wages = county_data[county_data['LineCode'] == 50].copy()
@@ -43,32 +46,43 @@ def load_and_process_cainc4():
     logger.info(f"Transfers data: {len(transfers)} rows")
 
     # Get the most recent year data (2023)
-    year = '2023'
+    year_col = '2023'
 
     # Reshape data for easier processing
     def get_component_data(df, component_name):
-        result = df[['GeoFIPS', 'GeoName', year]].copy()
+        result = df[['GeoFIPS_clean', 'GeoName', year_col]].copy()
         result.columns = ['fips', 'county_name', component_name]
-        result[component_name] = pd.to_numeric(result[component_name].str.replace('(NA)', '0'), errors='coerce')
+        # Convert to numeric, handling (NA) and other text values
+        result[component_name] = pd.to_numeric(
+            result[component_name].astype(str).str.replace('(NA)', '0').str.replace('(D)', '0'),
+            errors='coerce'
+        )
+        result[component_name] = result[component_name].fillna(0)
         return result.set_index('fips')
 
     wages_2023 = get_component_data(wages, 'wages')
     property_2023 = get_component_data(property_income, 'property')
     transfers_2023 = get_component_data(transfers, 'transfers')
 
+    logger.info(f"Sample wages data: {wages_2023.head()}")
+
     # Combine all components
     eai_data = wages_2023.join(property_2023[['property']], how='outer').join(transfers_2023[['transfers']], how='outer')
 
-    # Calculate Economic Agency Index
-    # For now, let's use a simple ratio approach
-    # Higher wages and property income = good (more agency)
-    # Higher transfers = bad (less agency, more dependency)
+    # Fill any remaining NaN values with 0
+    eai_data = eai_data.fillna(0)
+
+    # Calculate Economic Agency Index components
     eai_data['total_income'] = eai_data['wages'] + eai_data['property'] + eai_data['transfers']
 
     # Calculate wage ratio (simplified EAI for MVP)
-    # This represents the proportion of income from wages vs transfers
+    # This represents economic agency - higher wage ratio = more agency
     eai_data['wage_ratio'] = eai_data['wages'] / eai_data['total_income']
     eai_data['wage_ratio'] = eai_data['wage_ratio'].fillna(0)
+
+    # Also calculate property ratio for future use
+    eai_data['property_ratio'] = eai_data['property'] / eai_data['total_income']
+    eai_data['property_ratio'] = eai_data['property_ratio'].fillna(0)
 
     # Reset index to have fips as a column
     eai_data = eai_data.reset_index()
@@ -76,17 +90,20 @@ def load_and_process_cainc4():
     # Add year column
     eai_data['year'] = 2023
 
-    # For MVP, use wage_ratio as our primary metric (similar to employment-population ratio)
-    # We'll call it prime_epop to keep compatibility with existing dashboard
+    # Use wage_ratio as our primary metric (compatible with existing dashboard)
     eai_data['prime_epop'] = eai_data['wage_ratio']
 
-    # Select final columns
+    # Select final columns and remove invalid/missing data
     final_data = eai_data[['fips', 'year', 'prime_epop', 'county_name', 'wages', 'property', 'transfers']].copy()
 
-    # Remove any rows with missing data
+    # Remove rows where total income is 0 or very small
+    final_data = final_data[final_data['wages'] + final_data['property'] + final_data['transfers'] > 1000]
+
+    # Remove any remaining NaN values
     final_data = final_data.dropna()
 
     logger.info(f"Processed {len(final_data)} counties with complete data")
+    logger.info(f"Sample data:\n{final_data.head()}")
 
     return final_data
 
@@ -97,8 +114,8 @@ def main():
     # Load and process data
     data = load_and_process_cainc4()
 
-    if data is None:
-        logger.error("Failed to load data")
+    if data is None or len(data) == 0:
+        logger.error("Failed to load data or no valid counties found")
         return
 
     # Create DuckDB database
