@@ -1,4 +1,7 @@
 # Post-Labor Economics: Triage Dashboard
+![GitHub stars](https://img.shields.io/github/stars/daveshap/PLE_Triage_Dashboard?style=social)
+![GitHub forks](https://img.shields.io/github/forks/daveshap/PLE_Triage_Dashboard?style=social)
+![Python version](https://img.shields.io/badge/python-3.11+-blue.svg)
 
 An interactive visualization tool for the **Economic Agency Index (EAI)** that identifies US counties experiencing labor market stress and economic dependency shifts.
 
