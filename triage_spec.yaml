@@ -1,13 +1,21 @@
-# Minimal KPI spec for Labor‑Collapse Triage dashboard
-# Each entry: {name, source_url, local_csv, formula}
+# Economic Agency Index (EAI) specification for Post-Labor Triage Dashboard
+# EAI = wage:property:transfer ratio for measuring economic agency
 kpis:
-  - name: prime_epop
-    source_url: https://download.bls.gov/pub/time.series/la/la.data.64.County
-    local_csv: la.data.64.County
+  - name: economic_agency_index
+    description: "Wage income / Property income / Transfer income ratio"
+    source_url: "https://apps.bea.gov/regional/zip/CAINC4.zip"
+    local_file: "CAINC4.csv"
+    components:
+      wages:
+        line_code: 50  # Wages and salaries
+        description: "Wage and salary income"
+      property:
+        line_code: 46  # Dividends, interest, and rent
+        description: "Property income (dividends, interest, rent)"
+      transfers:
+        line_code: 47  # Personal current transfer receipts
+        description: "Government transfers (Social Security, Medicare, etc.)"
     formula: |
-      # TODO: derive prime‑age employment‑population ratio
-  - name: avg_weekly_hours
-    source_url: https://download.bls.gov/pub/time.series/ce/ce.data.0.AllCES
-    local_csv: ce.data.0.AllCES
-    formula: |
-      # TODO: derive average hours for all private employees
+      # Calculate EAI components for each county
+      # Normalize each component by population
+      # Create ratio showing economic agency
