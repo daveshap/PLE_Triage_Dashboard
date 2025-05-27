@@ -75,144 +75,160 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+
+def get_county_coordinates(fips):
+    """Generate approximate coordinates for US counties based on FIPS codes"""
+    if not fips or len(str(fips)) != 5:
+        return 39.0, -98.0  # Center of US
+
+    # Convert to string and get state/county codes
+    fips_str = str(fips).zfill(5)
+    state_code = int(fips_str[:2])
+    county_code = int(fips_str[2:])
+
+    # Approximate state center coordinates
+    state_coords = {
+        1: (32.7, -86.8),  # Alabama
+        2: (64.0, -153.0),  # Alaska
+        4: (34.2, -111.5),  # Arizona
+        5: (35.2, -92.4),  # Arkansas
+        6: (36.7, -119.7),  # California
+        8: (39.0, -105.5),  # Colorado
+        9: (41.6, -72.7),  # Connecticut
+        10: (39.0, -75.5),  # Delaware
+        11: (38.9, -77.0),  # DC
+        12: (27.8, -81.7),  # Florida
+        13: (32.9, -83.2),  # Georgia
+        15: (21.1, -157.8),  # Hawaii
+        16: (44.2, -114.5),  # Idaho
+        17: (40.3, -89.0),  # Illinois
+        18: (39.8, -86.1),  # Indiana
+        19: (42.0, -93.2),  # Iowa
+        20: (38.5, -96.7),  # Kansas
+        21: (37.7, -84.9),  # Kentucky
+        22: (31.1, -91.8),  # Louisiana
+        23: (44.6, -69.8),  # Maine
+        24: (39.0, -76.8),  # Maryland
+        25: (42.2, -71.5),  # Massachusetts
+        26: (43.3, -84.5),  # Michigan
+        27: (45.7, -93.9),  # Minnesota
+        28: (32.7, -89.7),  # Mississippi
+        29: (38.4, -92.2),  # Missouri
+        30: (47.0, -110.0),  # Montana
+        31: (41.1, -98.0),  # Nebraska
+        32: (38.4, -117.0),  # Nevada
+        33: (43.4, -71.5),  # New Hampshire
+        34: (40.3, -74.5),  # New Jersey
+        35: (34.8, -106.2),  # New Mexico
+        36: (42.1, -74.9),  # New York
+        37: (35.6, -79.0),  # North Carolina
+        38: (47.5, -99.8),  # North Dakota
+        39: (40.3, -82.8),  # Ohio
+        40: (35.6, -96.9),  # Oklahoma
+        41: (44.5, -122.0),  # Oregon
+        42: (40.5, -77.5),  # Pennsylvania
+        44: (41.7, -71.5),  # Rhode Island
+        45: (33.8, -80.9),  # South Carolina
+        46: (44.2, -99.8),  # South Dakota
+        47: (35.7, -86.0),  # Tennessee
+        48: (31.0, -97.5),  # Texas
+        49: (40.1, -111.9),  # Utah
+        50: (44.0, -72.7),  # Vermont
+        51: (37.7, -78.2),  # Virginia
+        53: (47.3, -121.0),  # Washington
+        54: (38.4, -80.9),  # West Virginia
+        55: (44.3, -89.6),  # Wisconsin
+        56: (42.7, -107.3),  # Wyoming
+    }
+
+    # Get base coordinates for the state
+    base_lat, base_lng = state_coords.get(state_code, (39.0, -98.0))
+
+    # Add variation based on county code to spread counties within state
+    lat_offset = (county_code % 20 - 10) * 0.15
+    lng_offset = ((county_code // 20) % 20 - 10) * 0.2
+
+    return base_lat + lat_offset, base_lng + lng_offset
+
+
 # Database connection
 DB = pathlib.Path(__file__).parent / 'triage.duckdb'
 if not DB.exists():
-    st.error('Database not found. Please run build_triage.py first to generate the required data.')
+    st.error('Database not found. Please run build_triage.py first.')
     st.stop()
 
 try:
     con = duckdb.connect(DB.as_posix(), read_only=True)
-
-    # Check what tables exist in the database
-    tables = con.execute("SHOW TABLES").fetchall()
-    table_names = [table[0] for table in tables]
-
-    if 'triage' not in table_names:
-        st.error(f"Table 'triage' not found in database. Available tables: {', '.join(table_names)}")
-        st.stop()
-
-    # Get the schema of the triage table - using PRAGMA which is more reliable
-    schema_info = con.execute("PRAGMA table_info(triage)").fetchall()
-
-    # Get the real data from triage.duckdb
     df = con.table('triage').to_df()
-
+    con.close()
 except Exception as e:
     st.error(f"Error connecting to database: {str(e)}")
     st.stop()
 
+# Add coordinates to all counties
+df['latitude'] = df['fips'].apply(lambda x: get_county_coordinates(x)[0])
+df['longitude'] = df['fips'].apply(lambda x: get_county_coordinates(x)[1])
+
 # Create header
-st.markdown("""
+st.markdown(f"""
 <div class="title-container">
-    <h1 class="title-text">Post-Labor Economics: Labor-Collapse Triage Dashboard</h1>
-    <p class="subtitle-text">Identifying geographic areas experiencing significant labor market stress</p>
+    <h1 class="title-text">Post-Labor Economics: Economic Agency Dashboard</h1>
+    <p class="subtitle-text">Wage dependency analysis across {len(df):,} US Counties</p>
 </div>
 """, unsafe_allow_html=True)
 
-# Data information section - hidden by default
-with st.expander("Database Information", expanded=False):
-    st.markdown("### Database Overview")
-    st.write(f"Available tables: {table_names}")
-
-    st.markdown("### Table Schema")
-    # Create a properly formatted schema dataframe
-    schema_df = pd.DataFrame(
-        [(col[1], col[2], "PRIMARY KEY" if col[5] else "") for col in schema_info],
-        columns=["Column", "Type", "Constraints"]
-    )
-    st.dataframe(schema_df)
-
-    st.markdown("### Data Statistics")
-    st.write(f"Total records: {len(df)}")
-    st.write(f"Unique years: {sorted(df['year'].unique())}")
-    st.write(f"Unique FIPS codes: {sorted(df['fips'].unique())}")
-
-    st.markdown("### Raw Data Preview")
-    st.dataframe(df)
-
-# Check if we have sufficient data
-if len(df) < 1:
-    st.error("No data found in the database. Please run build_triage.py to generate data.")
+# Check if we have data
+if len(df) < 10:
+    st.error("Insufficient data. Please run build_triage.py to generate complete data.")
     st.stop()
 
-# Sidebar filters
+# Sidebar controls
 with st.sidebar:
-    st.header("Dashboard Controls")
+    st.header("Controls")
 
     # Year selection
     available_years = sorted(df['year'].unique())
-    selected_year = st.selectbox("Select Year", options=available_years, index=len(available_years) - 1)
+    selected_year = st.selectbox("Year", options=available_years, index=len(available_years) - 1)
 
-    # Determine stress level thresholds
-    high_stress_threshold = 0.75
-    medium_stress_threshold = 0.80
+    # Thresholds
+    st.markdown("### Economic Agency Thresholds")
+    st.caption("Wage ratio = wages / (wages + property + transfers)")
 
-    # Allow user to adjust thresholds
-    st.markdown("### Stress Level Thresholds")
-    custom_high = st.slider("High Stress Threshold (E-POP below)", 0.60, 0.80, high_stress_threshold, 0.01)
-    custom_medium = st.slider("Medium Stress Threshold (E-POP below)", custom_high, 0.90, medium_stress_threshold, 0.01)
+    high_threshold = st.slider("High Stress (wage ratio below)", 0.20, 0.50, 0.35, 0.01)
+    medium_threshold = st.slider("Medium Stress (wage ratio below)", high_threshold, 0.70, 0.50, 0.01)
 
-    # Filter by stress level
+    # Filters
     stress_options = ["High Stress", "Medium Stress", "Low Stress"]
-    selected_stress = st.multiselect(
-        "Filter by Stress Level",
-        stress_options,
-        default=stress_options
-    )
+    selected_stress = st.multiselect("Show Stress Levels", stress_options, default=stress_options)
 
     st.markdown("---")
+    st.markdown(f"""
+    **Economic Agency Index**
 
-    # About section
-    st.markdown("""
-    ### About This Dashboard
+    Higher wage ratios indicate more economic agency and self-sufficiency.
 
-    This tool visualizes labor market stress indicators across US counties, 
-    serving as an early warning system for areas experiencing disruption from 
-    automation, economic shifts, or other factors.
-
-    **Data Sources:** Bureau of Labor Statistics
+    **{len(df):,} counties** analyzed using BEA personal income data.
     """)
 
-    st.markdown("---")
-    st.warning("Limited data detected. This is a demo dataset with only 2 counties.")
-    st.info("Run a full ETL process with real data to see more counties.")
-
-# Filter data for selected year
+# Filter data
 year_data = df[df['year'] == selected_year].copy()
 
-# Notify if no data for selected year
-if len(year_data) == 0:
-    st.warning(f"No data available for the selected year {selected_year}.")
-    st.stop()
 
-# Add county information - hardcoded for the two counties we know exist
-county_info = {
-    '01001': {'name': 'Autauga County, AL', 'latitude': 32.5, 'longitude': -86.5},
-    '01003': {'name': 'Baldwin County, AL', 'latitude': 30.7, 'longitude': -87.7}
-}
-
-# Add county information to the data
-year_data['county_name'] = year_data['fips'].apply(lambda x: county_info.get(x, {}).get('name', f'County {x}'))
-year_data['latitude'] = year_data['fips'].apply(lambda x: county_info.get(x, {}).get('latitude', 0))
-year_data['longitude'] = year_data['fips'].apply(lambda x: county_info.get(x, {}).get('longitude', 0))
-
-
-# Add stress level classification
-def get_stress_level(epop, high_thresh, medium_thresh):
-    if epop < high_thresh:
+# Add stress classification
+def classify_stress(wage_ratio, high_thresh, medium_thresh):
+    if wage_ratio < high_thresh:
         return 'High'
-    elif epop < medium_thresh:
+    elif wage_ratio < medium_thresh:
         return 'Medium'
     else:
         return 'Low'
 
 
 year_data['stress_level'] = year_data['prime_epop'].apply(
-    lambda x: get_stress_level(x, custom_high, custom_medium)
+    lambda x: classify_stress(x, high_threshold, medium_threshold)
 )
 
-# Filter by selected stress levels
+# Apply filters
 stress_filter = []
 if "High Stress" in selected_stress:
     stress_filter.append('High')
@@ -223,162 +239,144 @@ if "Low Stress" in selected_stress:
 
 filtered_data = year_data[year_data['stress_level'].isin(stress_filter)]
 
-# Main dashboard area - Key Metrics
+# Key metrics
 col1, col2, col3 = st.columns(3)
 
-# Calculate metrics
 high_stress_counties = year_data[year_data['stress_level'] == 'High']
-high_stress_avg = high_stress_counties['prime_epop'].mean() if not high_stress_counties.empty else 0
 overall_avg = year_data['prime_epop'].mean()
-counties_needing_attention = len(high_stress_counties)
+high_stress_avg = high_stress_counties['prime_epop'].mean() if len(high_stress_counties) > 0 else 0
 
-# Display metrics
 with col1:
     st.markdown(f"""
     <div class="metric-card">
-        <div class="metric-value high-stress">{high_stress_avg:.2f}</div>
-        <div class="metric-label">Average Prime E-POP<br/>High-Risk Counties</div>
+        <div class="metric-value">{len(high_stress_counties):,}</div>
+        <div class="metric-label">High Stress<br/>Counties</div>
     </div>
     """, unsafe_allow_html=True)
 
 with col2:
     st.markdown(f"""
     <div class="metric-card">
-        <div class="metric-value medium-stress">{overall_avg:.2f}</div>
-        <div class="metric-label">Overall Average<br/>Prime E-POP</div>
+        <div class="metric-value medium-stress">{overall_avg:.3f}</div>
+        <div class="metric-label">Average<br/>Wage Ratio</div>
     </div>
     """, unsafe_allow_html=True)
 
 with col3:
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-value">{counties_needing_attention}</div>
-        <div class="metric-label">Counties Requiring<br/>Intervention</div>
-    </div>
-    """, unsafe_allow_html=True)
+    if len(high_stress_counties) > 0:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-value high-stress">{high_stress_avg:.3f}</div>
+            <div class="metric-label">High Stress<br/>Avg Ratio</div>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-value">—</div>
+            <div class="metric-label">High Stress<br/>Avg Ratio</div>
+        </div>
+        """, unsafe_allow_html=True)
 
-# Map Section
-st.markdown('<div class="section-header">Geographic Distribution of Labor Market Stress</div>', unsafe_allow_html=True)
+# Map
+st.markdown('<div class="section-header">Economic Agency by County</div>', unsafe_allow_html=True)
 
-# Display data source warning
-st.warning("""
-This dashboard is showing a demo dataset with just two Alabama counties.
-For a full view of all US counties, a complete ETL process needs to be implemented.
-""")
+if len(filtered_data) > 0:
+    # Prepare map data
+    map_data = filtered_data.copy()
+    map_data['radius'] = 6000
 
-# Prepare map data
-map_data = filtered_data.copy()
-map_data['radius'] = 35000  # Set a standard radius for visibility
+    # Colors by stress level
+    map_data['color'] = map_data['stress_level'].map({
+        'High': [220, 38, 38, 160],  # Red
+        'Medium': [245, 158, 11, 160],  # Orange
+        'Low': [16, 185, 129, 160]  # Green
+    })
 
-# Set colors based on stress level
-map_data['color'] = map_data['stress_level'].map({
-    'High': [220, 38, 38, 160],  # Red with alpha
-    'Medium': [245, 158, 11, 160],  # Orange with alpha
-    'Low': [16, 185, 129, 160]  # Green with alpha
-})
-
-# Create map view focused on Alabama
-view_state = pdk.ViewState(
-    latitude=31.6,
-    longitude=-87.1,
-    zoom=6.5,
-    pitch=0
-)
-
-# Create scatter plot layer
-scatter_layer = pdk.Layer(
-    "ScatterplotLayer",
-    data=map_data,
-    get_position=["longitude", "latitude"],
-    get_radius="radius",
-    get_fill_color="color",
-    pickable=True,
-    opacity=0.8,
-    stroked=True,
-    filled=True,
-)
-
-# Create deck
-deck = pdk.Deck(
-    layers=[scatter_layer],
-    initial_view_state=view_state,
-    tooltip={"text": "{county_name}\nFIPS: {fips}\nPrime E-POP: {prime_epop}\nStress Level: {stress_level}"},
-    map_style="light"
-)
-
-# Display map
-st.pydeck_chart(deck)
-
-# Map legend
-col1, col2, col3 = st.columns(3)
-with col1:
-    st.markdown(f'<span style="color:#DC2626">●</span> High Stress (E-POP < {custom_high})', unsafe_allow_html=True)
-with col2:
-    st.markdown(f'<span style="color:#F59E0B">●</span> Medium Stress (E-POP {custom_high}-{custom_medium})',
-                unsafe_allow_html=True)
-with col3:
-    st.markdown(f'<span style="color:#10B981">●</span> Low Stress (E-POP > {custom_medium})', unsafe_allow_html=True)
-
-# County Rankings section
-st.markdown('<div class="section-header">Counties Requiring Attention</div>', unsafe_allow_html=True)
-
-# Get high-stress counties
-top_counties = high_stress_counties.sort_values('prime_epop').head(10)
-
-if not top_counties.empty:
-    # Display counties table
-    st.markdown("**Counties with High Labor Market Stress**")
-
-    # Format the table display
-    display_df = top_counties[['county_name', 'fips', 'prime_epop', 'stress_level']].copy()
-    display_df.columns = ['County', 'FIPS Code', 'Prime E-POP', 'Stress Level']
-
-    st.dataframe(
-        display_df,
-        use_container_width=True
+    # Map view
+    view_state = pdk.ViewState(
+        latitude=39.0,
+        longitude=-98.0,
+        zoom=4,
+        pitch=0
     )
-else:
-    st.info("No high-stress counties found with current thresholds.")
 
-# Download section
-st.markdown('<div class="section-header">Download Data</div>', unsafe_allow_html=True)
+    # Map layer
+    layer = pdk.Layer(
+        "ScatterplotLayer",
+        data=map_data,
+        get_position=["longitude", "latitude"],
+        get_radius="radius",
+        get_fill_color="color",
+        pickable=True,
+        opacity=0.7,
+        stroked=False,
+        filled=True,
+    )
+
+    # Create deck
+    deck = pdk.Deck(
+        layers=[layer],
+        initial_view_state=view_state,
+        tooltip={"text": "{county_name}\nWage Ratio: {prime_epop:.3f}\nStress: {stress_level}"},
+        map_style="light"
+    )
+
+    st.pydeck_chart(deck)
+
+    # Legend
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown(f'🔴 High Stress (< {high_threshold})', unsafe_allow_html=True)
+    with col2:
+        st.markdown(f'🟠 Medium Stress ({high_threshold}-{medium_threshold})', unsafe_allow_html=True)
+    with col3:
+        st.markdown(f'🟢 Low Stress (> {medium_threshold})', unsafe_allow_html=True)
+
+    st.caption(f"Showing {len(filtered_data):,} of {len(year_data):,} counties")
+
+else:
+    st.warning("No counties match the current filters.")
+
+# Top high-stress counties
+if len(high_stress_counties) > 0:
+    st.markdown('<div class="section-header">Counties Requiring Attention</div>', unsafe_allow_html=True)
+
+    top_counties = high_stress_counties.nsmallest(10, 'prime_epop')
+
+    display_df = top_counties[['county_name', 'fips', 'prime_epop']].copy()
+    display_df.columns = ['County', 'FIPS', 'Wage Ratio']
+    display_df['Wage Ratio'] = display_df['Wage Ratio'].apply(lambda x: f"{x:.3f}")
+
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+# Export
+st.markdown('<div class="section-header">Export Data</div>', unsafe_allow_html=True)
 col1, col2 = st.columns(2)
+
 with col1:
+    csv_data = filtered_data[['fips', 'county_name', 'prime_epop', 'stress_level']].to_csv(index=False)
     st.download_button(
-        label="Download Full Dataset (CSV)",
-        data=filtered_data.to_csv(index=False),
-        file_name=f"labor_triage_data_{selected_year}.csv",
+        label=f"Download Filtered Data ({len(filtered_data):,} counties)",
+        data=csv_data,
+        file_name=f"economic_agency_index_{selected_year}.csv",
         mime="text/csv"
     )
 
 with col2:
-    if not high_stress_counties.empty:
+    if len(high_stress_counties) > 0:
+        high_stress_csv = high_stress_counties[['fips', 'county_name', 'prime_epop']].to_csv(index=False)
         st.download_button(
-            label="Download High-Risk Counties Only (CSV)",
-            data=high_stress_counties.to_csv(index=False),
+            label=f"Download High-Risk Counties ({len(high_stress_counties):,})",
+            data=high_stress_csv,
             file_name=f"high_risk_counties_{selected_year}.csv",
             mime="text/csv"
         )
-    else:
-        st.button("Download High-Risk Counties Only (CSV)", disabled=True)
-
-# Implementation Notes section
-st.markdown('<div class="section-header">Implementation Notes</div>', unsafe_allow_html=True)
-st.markdown("""
-This dashboard currently displays a demo dataset with just two Alabama counties. To expand this to a full-scale monitoring tool:
-
-1. **Complete ETL Implementation**: Implement the data extraction and transformation logic specified in triage_spec.yaml
-2. **Add County Metadata**: The dashboard is ready to show county names and accurate geographic coordinates
-3. **Time Series Analysis**: Add historical trend visualization for E-POP and weekly hours
-4. **Performance Optimization**: For larger datasets, implement data clustering and aggregation at different zoom levels
-
-The architecture is in place for a scalable solution when more comprehensive data becomes available.
-""")
 
 # Footer
 st.markdown(f"""
 <div class="footer">
-    <p>Post-Labor Triage Dashboard | Last Updated: {datetime.now().strftime('%Y-%m-%d')} | Data Sources: BLS, US Census Bureau</p>
-    <p>This dashboard is part of Post-Labor Economics research by David Shapiro</p>
+    <p>Post-Labor Economics Dashboard | Economic Agency Index | {len(df):,} US Counties</p>
+    <p>Data: Bureau of Economic Analysis CAINC4 | Updated: {datetime.now().strftime('%Y-%m-%d')}</p>
 </div>
 """, unsafe_allow_html=True)
